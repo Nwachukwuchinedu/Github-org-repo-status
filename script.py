@@ -24,6 +24,14 @@ class ActivityData:
     details: Dict[str, Any]
 
 class GitHubRepoTracker:
+    async def get_repo_creation_date(self) -> str:
+        """Get the repository creation date"""
+        url = f"{self.base_url}/repos/{self.full_repo_name}"
+        data = await self.make_request(url)
+        if data and len(data) > 0:
+            repo_info = data[0]
+            return repo_info.get('created_at', 'N/A')
+        return "N/A"
     def __init__(self, token: str, org_name: str, repo_name: str, max_concurrent: int = 20):
         self.token = token
         self.org_name = org_name
@@ -329,15 +337,18 @@ class GitHubRepoTracker:
         since_date = (datetime.now() - timedelta(days=days_back)).isoformat()
         print(f"🚀 Starting GitHub repository tracking for {self.full_repo_name}")
         print(f"📅 Looking back {days_back} days (since {since_date[:10]})")
+        # Get repo creation date
+        repo_creation_date = await self.get_repo_creation_date()
         # Check if repo exists
-        if not await self.check_repo_exists():
-            return {}
+        if repo_creation_date == "N/A":
+            print(f"❌ Repository {self.full_repo_name} not found or not accessible")
+            return {}, repo_creation_date
         # Get contributors only
         print("🎯 Tracking only repository contributors")
         members = await self.get_repo_contributors()
         if not members:
             print("❌ No contributors found or API access denied")
-            return {}
+            return {}, repo_creation_date
         print(f"⚡ Processing {len(members)} contributors for repository {self.full_repo_name}...")
         member_tasks = [self.get_member_activity(member, since_date) for member in members]
         results = await asyncio.gather(*member_tasks, return_exceptions=True)
@@ -350,10 +361,10 @@ class GitHubRepoTracker:
                     member_activities[member] = result
             else:
                 print(f"❌ Failed to process {member}: {str(result)}")
-        return member_activities
+        return member_activities, repo_creation_date
 
-    def save_to_files(self, activities: Dict[str, List[ActivityData]], output_dir: str = None):
-        """Save summary activities to individual files for each contributor"""
+    def save_to_files(self, activities: Dict[str, List[ActivityData]], repo_creation_date: str, output_dir: str = None):
+        """Save summary activities to individual files for each contributor, including repo creation date"""
         if output_dir is None:
             output_dir = f"github_activities_{self.repo_name}"
         os.makedirs(output_dir, exist_ok=True)
@@ -363,6 +374,7 @@ class GitHubRepoTracker:
             with open(filename, 'w', encoding='utf-8') as f:
                 # Only summary info
                 sorted_activities = sorted(member_activities, key=lambda x: x.date)
+                first_commit_date = next((a.date for a in sorted_activities if a.activity_type == "commit"), "N/A")
                 first_date = sorted_activities[0].date if sorted_activities else "N/A"
                 last_commit_date = next((a.date for a in reversed(sorted_activities) if a.activity_type == "commit"), "N/A")
                 total_commits = sum(1 for a in member_activities if a.activity_type == "commit")
@@ -373,9 +385,11 @@ class GitHubRepoTracker:
                 total_deletions = sum(a.details.get('total_deletions', 0) for a in member_activities if a.activity_type in ["commit", "pull_request"])
                 f.write(f"GitHub Activity Report for: {member}\n")
                 f.write(f"Repository: {self.full_repo_name}\n")
+                f.write(f"Repository Created: {repo_creation_date}\n")
                 f.write(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write("=" * 80 + "\n\n")
                 f.write(f"Date Started Working: {first_date}\n")
+                f.write(f"First Commit Date: {first_commit_date}\n")
                 f.write(f"Last Commit Date: {last_commit_date}\n")
                 f.write(f"Total Commits: {total_commits}\n")
                 f.write(f"Total Pull Requests: {total_prs}\n")
@@ -400,8 +414,8 @@ async def main():
     start_time = time.time()
     
     async with GitHubRepoTracker(args.token, args.org, args.repo, args.concurrent) as tracker:
-        activities = await tracker.track_repository(args.days)
-        tracker.save_to_files(activities, args.output)
+        activities, repo_creation_date = await tracker.track_repository(args.days)
+        tracker.save_to_files(activities, repo_creation_date, args.output)
     
     end_time = time.time()
     print(f"🎉 Completed in {end_time - start_time:.2f} seconds")
@@ -426,6 +440,6 @@ if __name__ == "__main__":
     else:
         async def run_with_env():
             async with GitHubRepoTracker(TOKEN, ORG_NAME, REPO_NAME) as tracker:
-                activities = await tracker.track_repository(DAYS_BACK)
-                tracker.save_to_files(activities)
+                activities, repo_creation_date = await tracker.track_repository(DAYS_BACK)
+                tracker.save_to_files(activities, repo_creation_date)
         asyncio.run(run_with_env())
