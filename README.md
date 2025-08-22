@@ -41,9 +41,20 @@ Optional arguments:
 
 ### Output
 
-Reports are saved in a folder named `github_activities_<repo_name>/` by default. Each contributor will have a summary report in a separate `.txt` file.
+Reports are saved in a folder named `github_activities_<repo_name>/` by default. Each contributor will have a summary report in a separate `.json` file.
 
-### Example
+### Output Format
+
+Each contributor's JSON report includes:
+
+- `username`: Contributor's GitHub username
+- `repository`: Full repository name
+- `repo_created`: Repository creation date (human-readable)
+- `generated_on`: Report generation date (human-readable)
+- `date_started_working`, `first_commit_date`, `last_commit_date`: All dates are formatted for readability (e.g., "21st July 2025 19:31:59")
+- `total_commits`, `total_pull_requests`, `total_issues`, `total_activities`: Activity counts
+- `net_changes`: Total additions minus deletions across commits and pull requests
+- `total_changes`: Object with `additions` and `deletions` counts
 
 ```bash
 export GITHUB_TOKEN=ghp_xxx
