@@ -417,10 +417,32 @@ class GitHubRepoTracker:
         print(f"Saving activity data to {output_dir}/")
         for member, member_activities in activities.items():
             filename = os.path.join(output_dir, f"{member}.json")
-            sorted_activities = sorted(member_activities, key=lambda x: x.date)
-            first_commit_date = next((a.date for a in sorted_activities if a.activity_type == "commit"), "N/A")
+            # Sort by original date string (ISO or Y-m-d H:M:S)
+            def parse_date(d):
+                try:
+                    return datetime.strptime(d[:19], '%Y-%m-%dT%H:%M:%S')
+                except Exception:
+                    try:
+                        return datetime.strptime(d, '%Y-%m-%d %H:%M:%S')
+                    except Exception:
+                        return datetime.max
+            sorted_activities = sorted(member_activities, key=lambda x: parse_date(x.details.get('created_at', x.date)))
+            commit_activities = [a for a in member_activities if a.activity_type == "commit"]
+            # Use the original ISO date from the commit details if available, else fallback to x.date
+            def get_commit_iso_date(a):
+                # Try details['sha'] for commit, else fallback to x.date
+                try:
+                    # Most reliable: commit['commit']['author']['date'] is stored in x.details['commit_date'] if you want to add it
+                    return datetime.strptime(a.details.get('commit_date', a.date)[:19], '%Y-%m-%dT%H:%M:%S')
+                except Exception:
+                    try:
+                        return datetime.strptime(a.date, '%Y-%m-%d %H:%M:%S')
+                    except Exception:
+                        return datetime.max
+            commit_activities_sorted = sorted(commit_activities, key=get_commit_iso_date)
+            first_commit_date = commit_activities_sorted[-1].date if commit_activities_sorted else "N/A"
+            last_commit_date = commit_activities_sorted[0].date if commit_activities_sorted else "N/A"
             first_date = sorted_activities[0].date if sorted_activities else "N/A"
-            last_commit_date = next((a.date for a in reversed(sorted_activities) if a.activity_type == "commit"), "N/A")
             total_commits = sum(1 for a in member_activities if a.activity_type == "commit")
             total_prs = sum(1 for a in member_activities if a.activity_type == "pull_request")
             total_issues = sum(1 for a in member_activities if a.activity_type == "issue")
@@ -432,7 +454,6 @@ class GitHubRepoTracker:
                 "repository": self.full_repo_name,
                 "repo_created": self.format_date(repo_creation_date),
                 "generated_on": self.format_date(datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
-                "date_started_working": self.format_date(first_date),
                 "first_commit_date": self.format_date(first_commit_date),
                 "last_commit_date": self.format_date(last_commit_date),
                 "total_commits": total_commits,
